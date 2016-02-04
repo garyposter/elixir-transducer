@@ -106,19 +106,18 @@ defmodule Transduce do
   """
 
   @doc ~S"""
-  Transduce a given enumerable.  By default, generate a list.
+  Transduce a given enumerable to generate a list.
 
   ## Examples
 
-      iex> Transducer.transduce([2,3,5,7,11], Transducer.take(2))
-      [2, 3]
+      iex> import Transduce, only: [transduce: 2, take: 1, compose: 1, filter: 1]
+      iex> transduce([2,3,5,7,11], take(3))
+      [2, 3, 5]
+      iex> transduce(0..20, compose([filter(&(rem(&1, 2) == 0)), take(5)]))
+      [0, 2, 4, 6, 8]
+      iex> transduce(0..20, [filter(&(rem(&1, 3) == 0)), take(6)])
+      [0, 3, 6, 9, 12, 15]
   """
-
-  # @spec transduce(t, stateful_transducer)
-
-  def transduce(enumerable, transducers) when is_list(transducers) do
-    transduce(enumerable, compose(transducers))
-  end
   def transduce(enumerable, transducer) do
     transduce(enumerable, transducer, [], &({:cont, [&1 | &2]}), &:lists.reverse/1)
   end
@@ -129,6 +128,9 @@ defmodule Transduce do
     {_, result} = Enumerable.reduce(
       enumerable, {:cont, accumulator}, transducer.(stateless_reducer))
     finalizer.(result)
+  end
+  def transduce(enumerable, transducers, accumulator, stateless_reducer, finalizer) when is_list(transducers) do
+    transduce(enumerable, compose(transducers), accumulator, stateless_reducer, finalizer)
   end
 
   def transduce(enumerable, transducer, accumulator, stateless_reducer, finalizer) do
@@ -143,21 +145,75 @@ defmodule Transduce do
     finalizer.(result)
   end
 
+  @doc ~S"""
+  Compose multiple transducers into one.
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 2, compose: 1, map: 1, filter: 1]
+      iex> transduce([2,3,5,7,11,13,17,19,23], compose([map(&(&1+1)), filter(&(rem(&1,3)==0))]))
+      [3, 6, 12, 18, 24]
+
+  Stateless transducers compose into functions.
+
+      iex> import Transduce, only: [compose: 1, map: 1]
+      iex> tr = compose([map(&(&1*2)), map(&(&1+2))])
+      iex> tr.(fn item, acc -> {item, acc} end).(5, 42)
+      {12, 42}
+
+  If any other kind of transducer enters the mix, it becomes a
+  ComposedTransducer.
+
+      iex> import Transduce, only: [compose: 1, map: 1, take: 1]
+      iex> tr = compose([map(&(&1*2)), take(5)])
+      iex> length(tr.transducers)
+      2
+
+  Composed transducers can themselves be composed.
+
+      iex> import Transduce, only: [transduce: 2, compose: 1, map: 1, filter: 1, take: 1]
+      iex> tr1 = compose([filter(&(rem(&1, 3)==0)), map(&(&1*2))])
+      iex> tr2 = compose([map(&(&1+1)), take(5)])
+      iex> transduce(0..20, compose([tr1, tr2]))
+      [1, 7, 13, 19, 25]
+  """
   def compose([first | rest] = _transducers) do
     _compose(first, rest)
   end
 
+  def _compose(current, [next1, next2 | rest])
+    when not is_function(current) and is_function(next1) and is_function(next2) do
+    _compose(current, [Transducer.compose(next1, next2) | rest])
+  end
   def _compose(current, [next | rest]) do
     _compose(Transducer.compose(current, next), rest)
   end
   def _compose(current, []), do: current
 
+  @doc ~S"""
+  Apply a function to each item it receives.
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 2, map: 1]
+      iex> transduce(0..4, map(&(-&1)))
+      [0, -1, -2, -3, -4]
+  """
   def map(f) do
     fn rf ->
       fn item, accumulator -> rf.(f.(item), accumulator) end
     end
   end
 
+  @doc ~S"""
+  Only include items if the filter function returns true.
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 2, filter: 1]
+      iex> transduce(0..5, filter(&(rem(&1,2)==0)))
+      [0, 2, 4]
+  """
   def filter(f) do
     fn rf ->
       fn item, accumulator ->
@@ -166,6 +222,15 @@ defmodule Transduce do
     end
   end
 
+  @doc ~S"""
+  Exclude items if the remove function returns true.
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 2, remove: 1]
+      iex> transduce(0..5, remove(&(rem(&1,2)==0)))
+      [1, 3, 5]
+  """
   def remove(f) do
     fn rf ->
       fn item, accumulator ->
@@ -174,6 +239,15 @@ defmodule Transduce do
     end
   end
 
+  @doc ~S"""
+  Only iterate while the function returns true.
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 2, take_while: 1]
+      iex> transduce([0, 1, 2, 10, 11, 4], take_while(&(&1 < 10)))
+      [0, 1, 2]
+  """
   def take_while(f) do
     fn rf ->
       fn item, accumulator ->
@@ -182,6 +256,17 @@ defmodule Transduce do
     end
   end
 
+  @doc ~S"""
+  Take the first N items from the enumerable and then stop iteration.
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 2, take: 1, filter: 1]
+      iex> transduce(0..200, take(5))
+      [0, 1, 2, 3, 4]
+      iex> transduce(0..200, [filter(&(rem(&1, 5)==0)), take(5)])
+      [0, 5, 10, 15, 20]
+  """
   def take(count) do
     %StatefulTransducer{
       initial_state: 0,
@@ -197,6 +282,17 @@ defmodule Transduce do
     }
   end
 
+  @doc ~S"""
+  Skip the first N items from the enumerable and then iterate.
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 2, skip: 1, take: 1]
+      iex> transduce(0..10, skip(8))
+      [8, 9, 10]
+      iex> transduce(0..10, [skip(4), take(2)])
+      [4, 5]
+  """
   def skip(count) do
     %StatefulTransducer{
       initial_state: 0,
@@ -212,6 +308,16 @@ defmodule Transduce do
     }
   end
 
+  @doc ~S"""
+  Call the function with each value and the result of the previous call,
+  beginning with the initial_value.
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 2, scan: 2]
+      iex> transduce(1..5, scan(0, &(&1 + &2)))
+      [1, 3, 6, 10, 15]
+  """
   def scan(initial_value, f) do
     %StatefulTransducer{
       initial_state: initial_value,
@@ -224,6 +330,18 @@ defmodule Transduce do
     }
   end
 
+  @doc ~S"""
+  Step over N items in the enumerable, taking 1 between each set.  Called with
+  two arguments, you specify how many to take (take_count, skip_count).
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 2, step: 1, step: 2]
+      iex> transduce(0..10, step(2))
+      [0, 3, 6, 9]
+      iex> transduce(0..15, step(2, 3))
+      [0, 1, 5, 6, 10, 11, 15]
+  """
   def step(skip_count), do: step(1, skip_count)
   def step(take_count, skip_count) do
     total = take_count + skip_count

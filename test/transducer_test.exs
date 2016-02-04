@@ -1,6 +1,6 @@
 defmodule TransducerTest do
   use ExUnit.Case
-  doctest Transducer
+  doctest Transduce
 
   test "the truth" do
     assert 1 + 1 == 2
