@@ -137,7 +137,7 @@ defmodule Transduce do
   end
 
   @spec transduce(any, any, any, Transducer.stateless_reducer, any) :: any
-  def transduce(enumerable, transducer, accumulator, stateless_reducer, finalizer \\ &(&1))
+  def transduce(enumerable, transducer, accumulator, stateless_reducer \\ fn _, acc -> {:cont, acc} end, finalizer \\ &(&1))
   def transduce(enumerable, transducer, accumulator, stateless_reducer, finalizer) when is_function(transducer) do
     {_, result} = Enumerable.reduce(
       enumerable, {:cont, accumulator}, transducer.(stateless_reducer))
@@ -369,6 +369,55 @@ defmodule Transduce do
           else
             {:cont, {position+1, accumulator}}
           end
+        end
+      end
+    }
+  end
+
+  @doc ~S"""
+  For each enumerable, transform it with the given transducer(s) and then stash it
+  in the accumulator, which must be a map.
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 3, filter: 1, put: 2, scan: 2]
+      iex> transduce(
+      ...>   1..20, [
+      ...>     put(:total, scan(0, &Kernel.+/2)),
+      ...>     put(:even, [filter(fn v -> rem(v, 2) == 0 end), scan(0, &Kernel.+/2)])
+      ...>   ],
+      ...>   %{})
+      %{even: 110, total: 210}
+  """
+  def put(key, transducers) when is_list(transducers) do
+    put(key, compose(transducers))
+  end
+  def put(key, transducer) when is_function(transducer) do
+    reducer = Transducer.reducer(
+      transducer,
+      fn item, accumulator -> {:cont, Map.put(accumulator, key, item)} end)
+    %StatefulTransducer{
+      initial_state: :cont,
+      function: fn rf ->
+        fn
+          item, {:halt, accumulator} -> rf.(item, accumulator)
+          item, {:cont, accumulator} -> rf.(item, reducer.(item, accumulator))
+        end
+      end
+    }
+  end
+  def put(key, transducer) do
+    reducer = Transducer.reducer(
+      transducer,
+      fn item, {state, accumulator} -> {:cont, {state, Map.put(accumulator, key, item)}} end)
+    %StatefulTransducer{
+      initial_state: {:cont, Transducer.initial_state(transducer)},
+      function: fn rf ->
+        fn
+          item, {{:halt, _}, _}=accumulator -> rf.(item, accumulator)
+          item, {{:cont, state}, accumulator} ->
+            {disposition, {new_state, new_accumulator}} = reducer.(item, {state, accumulator})
+            rf.(item, {{disposition, new_state}, new_accumulator})
         end
       end
     }
