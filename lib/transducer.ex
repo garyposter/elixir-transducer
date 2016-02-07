@@ -375,24 +375,43 @@ defmodule Transduce do
   end
 
   @doc ~S"""
-  For each enumerable, transform it with the given transducer(s) and then stash it
-  in the accumulator, which must be a map.
+  For each item in the enumerable, transform it and the previous result with the
+  given reducer and then stash the resulting value in the accumulator, which
+  must be a map.
 
   ## Examples
 
-      iex> import Transduce, only: [transduce: 3, filter: 1, put: 2, scan: 2]
+      iex> import Transduce, only: [transduce: 3, put: 3]
+      iex> transduce([6,3,8,2,4,9,5,0,1,7], [put(:min, nil, &min/2), put(:max, 0, &max/2)], %{})
+      %{max: 9, min: 0}
+  """
+  def put(key, initial_value, reducer) do
+    fn rf ->
+      fn item, acc ->
+        rf.(item, Map.put(acc, key, reducer.(item, Map.get(acc, key, initial_value))))
+      end
+    end
+  end
+
+  @doc ~S"""
+  For each item in the enumerable, transform it with the given transducer(s) and
+  then stash the resulting value in the accumulator, which must be a map.
+
+  ## Examples
+
+      iex> import Transduce, only: [transduce: 3, filter: 1, tput: 2, scan: 2]
       iex> transduce(
       ...>   1..20, [
-      ...>     put(:total, scan(0, &Kernel.+/2)),
-      ...>     put(:even, [filter(fn v -> rem(v, 2) == 0 end), scan(0, &Kernel.+/2)])
+      ...>     tput(:total, scan(0, &Kernel.+/2)),
+      ...>     tput(:even, [filter(fn v -> rem(v, 2) == 0 end), scan(0, &Kernel.+/2)])
       ...>   ],
       ...>   %{})
       %{even: 110, total: 210}
   """
-  def put(key, transducers) when is_list(transducers) do
-    put(key, compose(transducers))
+  def tput(key, transducers) when is_list(transducers) do
+    tput(key, compose(transducers))
   end
-  def put(key, transducer) when is_function(transducer) do
+  def tput(key, transducer) when is_function(transducer) do
     reducer = Transducer.reducer(
       transducer,
       fn item, accumulator -> {:cont, Map.put(accumulator, key, item)} end)
@@ -406,7 +425,7 @@ defmodule Transduce do
       end
     }
   end
-  def put(key, transducer) do
+  def tput(key, transducer) do
     reducer = Transducer.reducer(
       transducer,
       fn item, {state, accumulator} -> {:cont, {state, Map.put(accumulator, key, item)}} end)
