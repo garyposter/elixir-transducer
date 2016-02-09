@@ -2,46 +2,55 @@
 
 ## Why do you want this?
 
-Transducers let you combine common enumerable operations like `map`, `filter`, `take_while`, `take`, and so on into a single reducing function. Pipelines of functions that would otherwise send the entire collection through each step (e.g. `enum |> filter(&(&1 > 5)) |> take(5)`) can instead send each element of the collection through all of the functions at once.
+Well, to be honest, in my opinion, you probably don't.
 
-Visually, you can compare the two approaches by imagining a spreadsheet table. Each element of your enumerable is at the start of a row, and each transforming function is a column in your spreadsheet. Without transducers, we typically fill each column at a time.  With transducers, we fill each row at a time.  The transducer approach isn't always necessary, but it can be very useful.
+Transducers are an idea from the Clojure community that reportedly unify different enumerable patterns there. My library works well enough, but seems to be a largely unnecessary abstraction in Elixir. As far as I can tell, it's because the Elixir Enumerable protocol is more flexible than the Clojure Enum protocol, but I could be wrong. In any case, I currently think that using the [Stream module](http://elixir-lang.org/docs/stable/elixir/Stream.html) gets close enough that the additional abstraction of a transducer doesn't give enough value for the cost.
 
-Use cases for transducers include the following.
+But, you're still reading, apparently. I'll dig a little deeper in my explanation of what this is.
 
-- You have a **big enumerable**, and repeatedly iterating through it is expensive, annoying, or impossible.
-- You want to **efficiently operate on only a subset of your enumerable**.  Transducers are especially effective if the composition of the subset is complex (e.g. the example in the first paragraph: you want the first five items that are greater than 5).
-- You want to build or use **a composable library of functions** that operate on an enumerable.  For instance, beyond standard enumerable functions, maybe you want to build a library of functions that can collect various statistics on an enumerable.  Written as transducers, they can collect multiple statistics in a single pass.
-- Your conception of a problem matches the transducer model.
+Transducers let you combine reduction operations like `map`, `filter`, `take_while`, `take`, and so on into a single reducing function. As with Stream, but in contrast to Enum, all operations are performed for each item before the next item in the enumerable is processed.  You can compare the two approaches by imagining a spreadsheet table. Each element of your enumerable is at the start of a row, and each transforming function is a column in your spreadsheet. With the Enum module, we fill each column at a time.  With transducers (and the Stream module), we fill each row at a time.  The transducer/Stream approach isn't always necessary, but it can be very useful if you have an enumerable so big that you don't want to have to load it in memory all at once, or if you want to efficiently operate on an incongruent subset of your enumerable.
+
+One difference with the Stream module is that the transducers' reducing functions don't have to produce an enumerable, while Stream module transformations always do. For instance, while you can certainly produce a list with transducers...
+
+    iex> import Transduce, only: [transduce: 2, filter: 1, take: 1]
+    iex> transduce(1..100, [filter(&(&1 > 5)), take(5)])
+    [6, 7, 8, 9, 10]
+
+...you can also produce another structure:
+
+    iex> import Transduce, only: [transduce: 3, filter: 1, take: 1, put: 3, compose: 1]
+    iex> transduce(
+    ...>   [4, 8, 7, 3, 2, 9, 6, 12, 15], [
+    ...>     filter(&(&1 > 5)),
+    ...>     take(5),
+    ...>     put(:min, nil, &min/2),
+    ...>     put(:max, 0, &max/2),
+    ...>     put(:count, 0, fn _, a -> a+1 end),
+    ...>     put(:total, 0, &Kernel.+/2)],
+    ...>   %{})
+    {count: 5, max: 12, min: 6, total: 42}
+
+Streams can't do that kind of composition.  That said, maybe I'll see a counterexample someday, but for now the Stream/Enum version of that example isn't really that different, and is slightly faster (unless you compose the transducers beforehand, in which case it performs roughly the same).
+
+    iex> [4, 8, 7, 3, 2, 9, 6, 12, 15] |>
+    ...> Stream.filter(&(&1 > 5)) |>
+    ...> Stream.take(5) |>
+    ...> Enum.reduce(%{}, fn i, acc ->
+    ...>   acc
+    ...>   |> Map.update(:min, i, &min(&1, i))
+    ...>   |> Map.update(:max, i, &max(&1, i))
+    ...>   |> Map.update(:count, 1, &(&1+1))
+    ...>   |> Map.update(:total, i, &(&1+i))
+    ...> end)
+    {count: 5, max: 12, min: 6, total: 42}
 
 ## What's the status of this library?
 
-This is an alpha.  I am looking for feedback.
+This is an alpha that is probably destined for abandonware unless I or someone else realize that it is more valuable than it seems in comparison with the Stream module.
 
-I currently have the following goals for the library, in rough prioritization.
+That said, it has some basic docs, the doctests give a modicum of coverage, and it's reasonably efficient, though not quite as fast as a typical Stream/Enum usage in the common cases I've tested.
 
-- Make it easy to use.
-- Make it easy to understand, especially if you've grokked the basic transducer pattern (see the "How do they work" section, below).  In particular, I want transducer functions to look like how they are explained.
-- Make it efficient.
-- Make it tested and documented.
-
-**Make it easy to use.** I think it's pretty easy to use. I keep contemplating adding some macro sugar for composing transducers: a pipe-like spelling seems particularly nice to me at the moment. Using it more "in anger" will probably inform this and other similar decisions.
-
-**Make it easy to understand.** I'm happy that stateless transducers are simple and compose simply, and that stateful transducers are simple and compose somewhat simply.
-
-**Make it efficient.** It seems pretty efficient already.  I could be a lot more careful about this, but based on a few "best of N runs" test comparing the transducer performance with the enum performance, it seems good.  When the enum is large and transduce can be lazy, transduce kills it, unsurprisingly.  On my machine, here are the results of some casual best-of-20-runs...
-
-- Enum examples
-  - `:timer.tc(fn -> 1..20 |> Enum.filter(&(&1 > 5)) |> Enum.take(5) end)`: **62 μs**
-  - `:timer.tc(fn -> 1..1000000 |> Enum.filter(&(&1 > 5)) |> Enum.take(5) end)`: **1418820 μs**
-- Transduce examples
-  - `:timer.tc(fn -> transduce(1..20, [filter(&(&1 > 5)), take(5)]) end)`:
-**55 μs**
-  - `:timer.tc(fn -> Transduce.transduce(1..1000000, [Transduce.filter(&(&1 > 5)), Transduce.take(5)]) end)`: **66 μs**
-  - `:timer.tc(Transduce, :transduce, [1..1000000, [Transduce.filter(&(&1 > 5)), Transduce.take(5)]])`: **33 μs**
-
-Looking at average speed over N runs currently paints a slightly worse picture for Transduce than "best of N", but it still seems reasonably similar for small sets, and wildly better for large sets that
-
-**Make it tested and documented.** I have a decent start on the docs.  My tests are only doctests so far, and I mostly don't have Dialyzer specs.
+If you have any feedback for me on the code, I'd appreciate it.  I'm still learning Elixir.  File an issue, or reach out to [gary@modernsongs.com](mailto:gary@modernsongs.com).
 
 ## How do you use transducers?
 
@@ -77,11 +86,9 @@ With a transducer, you just pass the result of the transformation to the next re
 
 If that didn't make sense, I'm not surprised: it was hubris to try to explain. :-P  Go look at that article I recommended above.  The author does a great job.
 
-## How can you write my own transducers?
+## How can you write your own transducers?
 
 For now, I recommend reading the Javascript article I listed above, and then looking at the existing implementations.  You either choose to write a stateless transducer, or a stateful transducer.  The transducers should return functions that use `:cont` or `:halt` when they want to skip or complete early, respectively, following the Enumerable reducer spec.
-
-I'll hope to write more later.
 
 ## Thanks
 
@@ -89,7 +96,9 @@ I looked at the [Theriac transducer library](https://github.com/timdeputter/ther
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed as:
+I haven't put this up in Hex, because I don't see a compelling usage.  Feel free to [reach out](mailto:gary@modernsongs.com)--I'm happy to if you want to put this in the package manager.
+
+If it ever becomes [available in Hex](https://hex.pm/docs/publish), the package can be installed as:
 
   1. Add transducer to your list of dependencies in `mix.exs`:
 
