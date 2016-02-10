@@ -18,7 +18,7 @@ One difference with the Stream module is that the transducers' reducing function
 
 ...you can also produce another structure:
 
-    iex> import Transduce, only: [transduce: 3, filter: 1, take: 1, put: 3, compose: 1]
+    iex> import Transduce, only: [transduce: 3, filter: 1, take: 1, put: 3]
     iex> transduce(
     ...>   [4, 8, 7, 3, 2, 9, 6, 12, 15], [
     ...>     filter(&(&1 > 5)),
@@ -43,6 +43,17 @@ Streams can't do that kind of composition.  That said, maybe I'll see a countere
     ...>   |> Map.update(:total, i, &(&1+i))
     ...> end)
     {count: 5, max: 12, min: 6, total: 42}
+
+Here's one more transducer trick to contemplate.
+
+    iex> import Transduce, only: [transduce: 3, filter: 1, put: 3]
+    iex> transduce(
+    ...>   [4, 8, 7, 3, 2, 9, 6, 12, 15], [
+    ...>     put(:total, 0, &Kernel.+/2),
+    ...>     filter(&(rem(&1, 2) == 0)),
+    ...>     put(:even_total, 0, &Kernel.+/2)],
+    ...>   %{})
+    %{even_total: 32, total: 66}
 
 ## What's the status of this library?
 
