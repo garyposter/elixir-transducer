@@ -2,9 +2,9 @@
 
 ## Why do you want this?
 
-Well, to be honest, in my opinion, you probably don't.
+For Elixir, in my opinion, it's mostly a matter of taste.
 
-Transducers are an idea from the Clojure community that reportedly unify different enumerable patterns there. My library works well enough, but seems to be a largely unnecessary abstraction in Elixir. As far as I can tell, it's because the Elixir Enumerable protocol is more flexible than the Clojure Enum protocol, but I could be wrong. In any case, I currently think that using the [Stream module](http://elixir-lang.org/docs/stable/elixir/Stream.html) gets close enough that the additional abstraction of a transducer doesn't give enough value for the cost.
+Transducers are an idea from the Clojure community that reportedly unify different enumerable patterns there. My library works well enough, but seems to be a *largely* unnecessary abstraction in Elixir. As far as I can tell, it's because the Elixir Enumerable protocol is more flexible than the Clojure Enum protocol. In any case, I currently think that using the [Stream module](http://elixir-lang.org/docs/stable/elixir/Stream.html) gets close enough that the additional abstraction of a transducer will only occasionally give enough value for the cost.
 
 But, you're still reading, apparently. I'll dig a little deeper in my explanation of what this is.
 
@@ -28,7 +28,7 @@ One difference with the Stream module is that the transducers' reducing function
     ...>     put(:count, 0, fn _, a -> a+1 end),
     ...>     put(:total, 0, &Kernel.+/2)],
     ...>   %{})
-    {count: 5, max: 12, min: 6, total: 42}
+    %{count: 5, max: 12, min: 6, total: 42}
 
 Streams can't do that kind of composition.  That said, maybe I'll see a counterexample someday, but for now the Stream/Enum version of that example isn't really that different, and is slightly faster (unless you compose the transducers beforehand, in which case it performs roughly the same).
 
@@ -42,7 +42,7 @@ Streams can't do that kind of composition.  That said, maybe I'll see a countere
     ...>   |> Map.update(:count, 1, &(&1+1))
     ...>   |> Map.update(:total, i, &(&1+i))
     ...> end)
-    {count: 5, max: 12, min: 6, total: 42}
+    %{count: 5, max: 12, min: 6, total: 42}
 
 Here's one more transducer trick to contemplate.
 
@@ -55,13 +55,15 @@ Here's one more transducer trick to contemplate.
     ...>   %{})
     %{even_total: 32, total: 66}
 
+That's the kind of thing that the Stream module can't easily emulate.  See the `tput` for a more powerful version of this pattern, that lets you assemble transducer sub-pipelines to collect data in a mapping.
+
 ## What's the status of this library?
 
-This is an alpha that is probably destined for abandonware unless I or someone else realize that it is more valuable than it seems in comparison with the Stream module.
+This is a casually-maintained alpha.  I'll probably push it to beta soon, which will mean a few more tests.  I'd kind of like to get full specs and try this with Dialyzer before I call it "1.0".
 
-That said, it has some basic docs, the doctests give a modicum of coverage, and it's reasonably efficient, though not quite as fast as a typical Stream/Enum usage in the common cases I've tested.
+It has some basic docs, the doctests give a modicum of coverage, and it's reasonably efficient, though not quite as fast as a typical Stream/Enum usage in the common cases I've tested.
 
-If you have any feedback for me on the code, I'd appreciate it.  I'm still learning Elixir.  File an issue, or reach out to [gary@modernsongs.com](mailto:gary@modernsongs.com).
+If you have any feedback for me on the code, I'd appreciate it.  I'm always eager to learn.  File an issue, or reach out to [gary@modernsongs.com](mailto:gary@modernsongs.com).
 
 ## How do you use transducers?
 
@@ -85,7 +87,7 @@ You can compose them with the `compose` function...
     iex> transduce(1..100, [filter(&(&1 > 5)), take(5)])
     [6, 7, 8, 9, 10]
 
-I'm using ranges for all of my examples, but they work with any enumerable (anything that implements the Enumerable protocol).
+I'm using ranges for all of my examples, but as I showed in the first section of this README, they work with any enumerable (anything that implements the Enumerable protocol).
 
 ## How do they work?
 

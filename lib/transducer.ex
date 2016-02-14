@@ -117,6 +117,94 @@ defmodule Transduce do
   post](http://blog.cognitect.com/blog/2014/8/6/transducers-are-coming).
   [This post](http://phuu.net/2014/08/31/csp-and-transducers.html) is a good
   conceptual introduction.
+
+  The input is always an enumerable.  The output can be an enumerable...
+
+      iex> import Transduce, only: [transduce: 2, filter: 1, take: 1]
+      iex> transduce(1..100, [filter(&(&1 > 5)), take(5)])
+      [6, 7, 8, 9, 10]
+
+...or can also produce another structure:
+
+      iex> import Transduce, only: [transduce: 3, filter: 1, take: 1, put: 3]
+      iex> transduce(
+      ...>   [4, 8, 7, 3, 2, 9, 6, 12, 15], [
+      ...>     filter(&(&1 > 5)),
+      ...>     take(5),
+      ...>     put(:min, nil, &min/2),
+      ...>     put(:max, 0, &max/2),
+      ...>     put(:count, 0, fn _, a -> a+1 end),
+      ...>     put(:total, 0, &Kernel.+/2)],
+      ...>   %{})
+      %{count: 5, max: 12, min: 6, total: 42}
+
+  You can write two kinds of transducers: stateless and stateful.  A stateless
+  transducer is the most straightfoward, since it is just a function.  Consider
+  the `map` transducer.
+
+  ```
+  def map(f) do
+    fn rf ->
+      fn item, accumulator -> rf.(f.(item), accumulator) end
+    end
+  end
+  ```
+
+  At its simplest, a transducer takes a reducing function (`rf` above), and
+  then returns another reducing function that wraps the `rf` with its own
+  behavior.  For `map`, it passes the mapped value to the `rf` for the next
+  step.  This works if the rf eventually returns a value.
+
+  The return value is annotated, as defined by the Enumerable protocol.
+  `{:cont, VALUE}` specifies that the reduction process should continue with
+  the next item in the enumerable input, but VALUE is the new accumulator.
+  `{:halt, VALUE}` specifies that the reduction process should stop,
+  short-circuiting, and return VALUE as the result.
+
+  For example, consider the `filter` implementation.
+
+  ```
+  def filter(f) do
+    fn rf ->
+      fn item, accumulator ->
+        if f.(item) do rf.(item, accumulator) else {:cont, accumulator} end
+      end
+    end
+  end
+  ```
+
+  In that case, if the filter passes the new item from the enumerable, it is
+  passed through to the inner reducing function.  If it doesn't pass, the
+  code returns `:cont` with an unchanged accumulator, indicating that we should
+  move on to the next item in the source enumerable without a new accumulator.
+  For an example of `:halt`, see the `take_while` implementation.
+
+  A stateful transducer looks similar, but has some additional features.
+  Consider the `take` implementation.
+
+  ```
+
+  def take(count) do
+    %StatefulTransducer{
+      initial_state: 0,
+      function: fn rf ->
+        fn
+          item, {state, accumulator} when state < count ->
+            rf.(item, {state+1, accumulator})
+          item, {state, accumulator} -> {:halt, {state, accumulator}}
+        end
+      end
+    }
+  end
+  ```
+
+  A take transducer returns a StatefulTransducer struct, which specifies an
+  `initial_state` and a `function`.  The function again takes a reducing
+  function (`rf`) but the wrapping function this time expects that the
+  accumulator has the shape `{state, accumulator}`.  The state is private to
+  this function, and will not be in the final accumulator result, but must also
+  be included in the function output, whether it's passed to the wrapped
+  reducing function or returned to the caller with `:halt` or `:cont`.
   """
 
   @doc ~S"""
@@ -285,12 +373,10 @@ defmodule Transduce do
     %StatefulTransducer{
       initial_state: 0,
       function: fn rf ->
-        fn item, {state, accumulator} ->
-          if state < count do
+        fn
+          item, {state, accumulator} when state < count ->
             rf.(item, {state+1, accumulator})
-          else
-            {:halt, {state, accumulator}}
-          end
+          item, {state, accumulator} -> {:halt, {state, accumulator}}
         end
       end
     }
@@ -384,6 +470,17 @@ defmodule Transduce do
       iex> import Transduce, only: [transduce: 3, put: 3]
       iex> transduce([6,3,8,2,4,9,5,0,1,7], [put(:min, nil, &min/2), put(:max, 0, &max/2)], %{})
       %{max: 9, min: 0}
+
+      iex> import Transduce, only: [transduce: 3, filter: 1, put: 3]
+      iex> transduce(
+      ...>   1..20, [
+      ...>     put(:total, 0, &Kernel.+/2),
+      ...>     put(:count, 0, fn _, ct -> ct + 1 end),
+      ...>     filter(fn v -> rem(v, 2) == 0 end),
+      ...>     put(:even, 0, &Kernel.+/2)
+      ...>   ],
+      ...>   %{})
+      %{count: 20, even: 110, total: 210}
   """
   def put(key, initial_value, reducer) do
     fn rf ->
@@ -403,10 +500,11 @@ defmodule Transduce do
       iex> transduce(
       ...>   1..20, [
       ...>     tput(:total, scan(0, &Kernel.+/2)),
-      ...>     tput(:even, [filter(fn v -> rem(v, 2) == 0 end), scan(0, &Kernel.+/2)])
+      ...>     tput(:even, [filter(fn v -> rem(v, 2) == 0 end), scan(0, &Kernel.+/2)]),
+      ...>     tput(:odd, [filter(fn v -> rem(v, 2) == 1 end), scan(0, &Kernel.+/2)])
       ...>   ],
       ...>   %{})
-      %{even: 110, total: 210}
+      %{even: 110, odd: 100, total: 210}
   """
   def tput(key, transducers) when is_list(transducers) do
     tput(key, compose(transducers))
