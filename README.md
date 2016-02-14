@@ -55,7 +55,7 @@ Here's one more transducer trick to contemplate.
     ...>   %{})
     %{even_total: 32, total: 66}
 
-That's the kind of thing that the Stream module can't easily emulate.  See the `tput` for a more powerful version of this pattern, that lets you assemble transducer sub-pipelines to collect data in a mapping.
+That's the kind of thing that the Stream module can't easily emulate.  See the `tput` for a more powerful version of this pattern, which lets you assemble transducer sub-pipelines to collect data in a mapping.
 
 ## What's the status of this library?
 
