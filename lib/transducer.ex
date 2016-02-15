@@ -100,11 +100,26 @@ defimpl Transducer, for: ComposedTransducer do
   def initial_state(transducer) do
     Enum.map(transducer.transducers, &Transducer.initial_state/1)
   end
-  def compose(transducer, %ComposedTransducer{}=other) do
-    %ComposedTransducer{transducers: transducer.transducers ++ other.transducers}
+  def compose(transducer, %ComposedTransducer{transducers: [other | transducers]}) do
+    _compose(transducer.transducers, other, [], transducers)
   end
   def compose(transducer, other) do
-    %ComposedTransducer{transducers: transducer.transducers ++ [other]}
+    _compose(transducer.transducers, other, [], [])
+  end
+  defp _compose([], nil, acc, [head | tail]) do
+    _compose([], nil, [head | acc], tail)
+  end
+  defp _compose([], nil, acc, []) do
+    %ComposedTransducer{transducers: Enum.reverse(acc)}
+  end
+  defp _compose([next], other, acc, tail) when is_function(next) and is_function(other) do
+    _compose([], nil, [Transducer.compose(next, other) | acc], tail)
+  end
+  defp _compose([next], other, acc, tail) do
+    _compose([], nil, [other | [next | acc]], tail)
+  end
+  defp _compose([next | transducers], other, acc, tail) do
+    _compose(transducers, other, [next | acc], tail)
   end
 end
 
@@ -376,7 +391,7 @@ defmodule Transduce do
         fn
           item, {state, accumulator} when state < count ->
             rf.(item, {state+1, accumulator})
-          item, {state, accumulator} -> {:halt, {state, accumulator}}
+          _, {state, accumulator} -> {:halt, {state, accumulator}}
         end
       end
     }
@@ -390,19 +405,17 @@ defmodule Transduce do
       iex> import Transduce, only: [transduce: 2, skip: 1, take: 1]
       iex> transduce(0..10, skip(8))
       [8, 9, 10]
-      iex> transduce(0..10, [skip(4), take(2)])
+      iex> transduce(0..20, [skip(4), take(2)])
       [4, 5]
   """
   def skip(count) do
     %StatefulTransducer{
       initial_state: 0,
       function: fn rf ->
-        fn item, {state, accumulator} = acc ->
-          if state < count do
-            {:cont, {state+1, accumulator}}
-          else
-            rf.(item, acc)
-          end
+        fn
+          _, {state, accumulator} when state < count ->
+            {:cont, {state + 1, accumulator}}
+          item, {state, accumulator} -> rf.(item, {state + 1, accumulator})
         end
       end
     }
