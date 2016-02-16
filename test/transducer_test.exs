@@ -26,4 +26,15 @@ defmodule TransducerTest do
     # Also doublecheck behavior
     assert transduce(3..10, composed) == [7, 9, 11]
   end
+
+  test "basic composition optimizes for stateless transducers" do
+    my_take = take(10) # stateful
+    composed = compose([filter(&(rem(&1, 2) == 0)), map(&(&1 + 1)), my_take, map(&(&1 * 2)), filter(&(&1 > 10))])
+    [first | [second | [third]]] = composed.transducers
+    assert is_function(first)
+    assert second === my_take
+    assert is_function(third)
+    # Also doublecheck behavior
+    assert transduce(0..100, composed) == [14, 18, 22, 26, 30, 34, 38]
+  end
 end
