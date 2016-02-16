@@ -154,7 +154,7 @@ defmodule Transduce do
       %{count: 5, max: 12, min: 6, total: 42}
 
   You can write two kinds of transducers: stateless and stateful.  A stateless
-  transducer is the most straightfoward, since it is just a function.  Consider
+  transducer is the most straightforward, since it is just a function.  Consider
   the `map` transducer.
 
   ```
@@ -198,7 +198,6 @@ defmodule Transduce do
   Consider the `take` implementation.
 
   ```
-
   def take(count) do
     %StatefulTransducer{
       initial_state: 0,

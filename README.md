@@ -101,7 +101,68 @@ If that didn't make sense, I'm not surprised: it was hubris to try to explain. :
 
 ## How can you write your own transducers?
 
-For now, I recommend reading the Javascript article I listed above, and then looking at the existing implementations.  You either choose to write a stateless transducer, or a stateful transducer.  The transducers should return functions that use `:cont` or `:halt` when they want to skip or complete early, respectively, following the Enumerable reducer spec.
+You can write two kinds of transducers: stateless and stateful.  A stateless transducer is the most straightforward, since it is just a function.  Consider the `map` transducer.
+
+  ```
+  def map(f) do
+    fn rf ->
+      fn item, accumulator -> rf.(f.(item), accumulator) end
+    end
+  end
+  ```
+
+At its simplest, a transducer takes a reducing function (`rf` above), and then returns another reducing function that wraps the `rf` with its own behavior.  For `map`, it passes the mapped value `f.(item)` to the `rf` for the next step.
+
+This assumes that the `rf` eventually returns a value--e.g., as described in the section above, the reducing function might be `fn item, accumulator -> {:cont, [item | accumulator]} end`.  As shown in that example, the return value is annotated with markers defined by the Enumerable protocol. `{:cont, VALUE}` specifies that the reduction process should continue with the next item in the enumerable input, but VALUE is the new accumulator. `{:halt, VALUE}` specifies that the reduction process should immediately stop and return VALUE as the result.
+
+For an example of using the `:cont` marker, consider the `filter` implementation.
+
+  ```
+  def filter(f) do
+    fn rf ->
+      fn item, accumulator ->
+        if f.(item) do rf.(item, accumulator) else {:cont, accumulator} end
+      end
+    end
+  end
+  ```
+
+In that case, if the filter passes the new item from the enumerable, it is passed through to the inner reducing function.  If it doesn't pass, the code returns `:cont` with an unchanged accumulator, indicating that we should move on to the next item in the source enumerable without a new accumulator.
+
+For an example of `:halt`, see the `take_while` implementation.
+
+  ```
+  def take_while(f) do
+    fn rf ->
+      fn item, accumulator ->
+        if f.(item) do rf.(item, accumulator) else {:halt, accumulator} end
+      end
+    end
+  end
+  ```
+
+Because of the `:halt` flag, the reduction stops and returns the accumulator when the given function no longer returns a true value.
+
+That's pretty much it for stateless transducers.  A stateful transducer looks similar, but, unsurprisingly, has to handle state. Consider the `take` implementation.
+
+  ```
+  def take(count) do
+    %StatefulTransducer{
+      initial_state: 0,
+      function: fn rf ->
+        fn
+          item, {state, accumulator} when state < count ->
+            rf.(item, {state+1, accumulator})
+          item, {state, accumulator} -> {:halt, {state, accumulator}}
+        end
+      end
+    }
+  end
+  ```
+
+A `take` transducer is a `StatefulTransducer` struct, which specifies an `initial_state` and a `function`.  The function again takes a reducing function (`rf`) but the wrapping function this time expects that the additional value has the shape `{state, accumulator}`.  The state is private to this function, and will not be in the final accumulator result, but must also be included in the function output, whether it's passed to the wrapped reducing function or returned to the caller with `:halt` or `:cont`.
+
+Composing stateful transducers follows a different pattern internally than stateless transducers, but otherwise, stateful transducers work the same as stateless transducers.
 
 ## Thanks
 
