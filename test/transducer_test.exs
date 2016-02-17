@@ -3,6 +3,18 @@ defmodule TransducerTest do
   doctest Transduce
   import Transduce
 
+  test "stateless transduce works" do
+    transducer = filter(&(rem(&1, 2) == 0))
+    assert is_function(transducer)
+    assert transduce(0..10, transducer) == [0, 2, 4, 6, 8, 10]
+  end
+
+  test "stateful transduce works" do
+    transducer = take(5)
+    assert not is_function(transducer)
+    assert transduce(0..10, transducer) == [0, 1, 2, 3, 4]
+  end
+
   test "composed transducer plus stateless optimize for stateless transducers" do
     my_take = take(5) # stateful
     original = compose([my_take, filter(&(&1 > 5))]) # filter is stateless
