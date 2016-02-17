@@ -49,4 +49,19 @@ defmodule TransducerTest do
     # Also doublecheck behavior
     assert transduce(0..100, composed) == [14, 18, 22, 26, 30, 34, 38]
   end
+
+  test "put composes transducers" do
+    assert transduce(
+      1..20,
+      [put(:first_five_even, 0, [filter(&(rem(&1, 2)==0)), take(5)], &Kernel.+/2),
+       put(:count, 0, fn _, ct -> ct + 1 end)],
+      %{}
+    ) == %{count: 20, first_five_even: 30}
+  end
+
+  test "put works with stateless transducers that halt" do
+    assert transduce(
+      1..20, put(:less_than_five, 0, take_while(&(&1 < 5)), &Kernel.+/2), %{}
+    ) == %{less_than_five: 10}
+  end
 end
