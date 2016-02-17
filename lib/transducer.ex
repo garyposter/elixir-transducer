@@ -493,6 +493,24 @@ defmodule Transduce do
       ...>   ],
       ...>   %{})
       %{count: 20, even: 110, total: 210}
+
+      iex> import Transduce, only: [transduce: 3, filter: 1, put: 4]
+      iex> transduce(
+      ...>   1..20, [
+      ...>     put(:even, 0, filter(&(rem(&1, 2) == 0)), &Kernel.+/2),
+      ...>     put(:odd, 0, filter(&(rem(&1, 2) == 1)), &Kernel.+/2)
+      ...>   ],
+      ...>   %{})
+      %{even: 110, odd: 100}
+
+      iex> import Transduce, only: [transduce: 3, take: 1, put: 4, put: 3]
+      iex> transduce(
+      ...>   1..20, [
+      ...>     put(:first, 0, take(5), &Kernel.+/2),
+      ...>     put(:total, 0, &Kernel.+/2)
+      ...>   ],
+      ...>   %{})
+      %{first: 15, total: 210}
   """
   def put(key, initial_value, reducer) do
     fn rf ->
@@ -501,51 +519,52 @@ defmodule Transduce do
       end
     end
   end
-
-  @doc ~S"""
-  For each item in the enumerable, transform it with the given transducer(s) and
-  then stash the resulting value in the accumulator, which must be a map.
-
-  ## Examples
-
-      iex> import Transduce, only: [transduce: 3, filter: 1, tput: 2, scan: 2]
-      iex> transduce(
-      ...>   1..20, [
-      ...>     tput(:total, scan(0, &Kernel.+/2)),
-      ...>     tput(:even, [filter(fn v -> rem(v, 2) == 0 end), scan(0, &Kernel.+/2)]),
-      ...>     tput(:odd, [filter(fn v -> rem(v, 2) == 1 end), scan(0, &Kernel.+/2)])
-      ...>   ],
-      ...>   %{})
-      %{even: 110, odd: 100, total: 210}
-  """
-  def tput(key, transducers) when is_list(transducers) do
-    tput(key, compose(transducers))
+  def put(key, initial_value, transducers, reducer) when is_list(transducers) do
+    put(key, initial_value, compose(transducers), reducer)
   end
-  def tput(key, transducer) when is_function(transducer) do
-    reducer = Transducer.reducer(
+  def put(key, initial_value, transducer, reducer) when is_function(transducer) do
+    final_reducer = Transducer.reducer(
       transducer,
-      fn item, accumulator -> {:cont, Map.put(accumulator, key, item)} end)
+      fn item, accumulator ->
+        { :cont,
+          Map.put(
+            accumulator,
+            key,
+            reducer.(item, Map.get(accumulator, key, initial_value)))
+        }
+      end
+    )
     %StatefulTransducer{
       initial_state: :cont,
       function: fn rf ->
         fn
-          item, {:halt, accumulator} -> rf.(item, accumulator)
-          item, {:cont, accumulator} -> rf.(item, reducer.(item, accumulator))
+          item, {:halt, _} = accumulator -> rf.(item, accumulator)
+          item, {:cont, accumulator} -> rf.(item, final_reducer.(item, accumulator))
         end
       end
     }
   end
-  def tput(key, transducer) do
-    reducer = Transducer.reducer(
+  def put(key, initial_value, transducer, reducer) do
+    final_reducer = Transducer.reducer(
       transducer,
-      fn item, {state, accumulator} -> {:cont, {state, Map.put(accumulator, key, item)}} end)
+      fn item, {state, accumulator} ->
+        { :cont,
+          { state,
+            Map.put(
+              accumulator,
+              key,
+              reducer.(item, Map.get(accumulator, key, initial_value)))
+          }
+        }
+      end)
     %StatefulTransducer{
       initial_state: {:cont, Transducer.initial_state(transducer)},
       function: fn rf ->
         fn
           item, {{:halt, _}, _}=accumulator -> rf.(item, accumulator)
           item, {{:cont, state}, accumulator} ->
-            {disposition, {new_state, new_accumulator}} = reducer.(item, {state, accumulator})
+            {disposition, {new_state, new_accumulator}} =
+              final_reducer.(item, {state, accumulator})
             rf.(item, {{disposition, new_state}, new_accumulator})
         end
       end

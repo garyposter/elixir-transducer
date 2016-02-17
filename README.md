@@ -6,8 +6,6 @@ For Elixir, in my opinion, it's mostly a matter of taste.
 
 Transducers are an idea from the Clojure community that reportedly unify different enumerable patterns there. My library works well enough, but seems to be a *largely* unnecessary abstraction in Elixir. As far as I can tell, it's because the Elixir Enumerable protocol is more flexible than the Clojure Enum protocol. In any case, I currently think that using the [Stream module](http://elixir-lang.org/docs/stable/elixir/Stream.html) gets close enough that the additional abstraction of a transducer will only occasionally give enough value for the cost.
 
-But, you're still reading, apparently. I'll dig a little deeper in my explanation of what this is.
-
 Transducers let you combine reduction operations like `map`, `filter`, `take_while`, `take`, and so on into a single reducing function. As with Stream, but in contrast to Enum, all operations are performed for each item before the next item in the enumerable is processed.  You can compare the two approaches by imagining a spreadsheet table. Each element of your enumerable is at the start of a row, and each transforming function is a column in your spreadsheet. With the Enum module, we fill each column at a time.  With transducers (and the Stream module), we fill each row at a time.  The transducer/Stream approach isn't always necessary, but it can be very useful if you have an enumerable so big that you don't want to have to load it in memory all at once, or if you want to efficiently operate on an incongruent subset of your enumerable.
 
 One difference with the Stream module is that the transducers' reducing functions don't have to produce an enumerable, while Stream module transformations always do. For instance, while you can certainly produce a list with transducers...
@@ -44,7 +42,7 @@ Streams can't do that kind of composition.  That said, maybe I'll see a countere
     ...> end)
     %{count: 5, max: 12, min: 6, total: 42}
 
-Here's one more transducer trick to contemplate.
+Here's a couple more transducer tricks to contemplate.
 
     iex> import Transduce, only: [transduce: 3, filter: 1, put: 3]
     iex> transduce(
@@ -55,7 +53,16 @@ Here's one more transducer trick to contemplate.
     ...>   %{})
     %{even_total: 32, total: 66}
 
-That's the kind of thing that the Stream module can't easily emulate.  See the `tput` for a more powerful version of this pattern, which lets you assemble transducer sub-pipelines to collect data in a mapping.
+    iex> import Transduce, only: [transduce: 3, filter: 1, put: 4]
+    iex> transduce(
+    ...>   [4, 8, 7, 3, 2, 9, 6, 12, 15], [
+    ...>     put(:even, 0, filter(&(rem(&1, 2) == 0)), &Kernel.+/2),
+    ...>     put(:odd, 0, filter(&(rem(&1, 2) == 1)), &Kernel.+/2)
+    ...>   ],
+    ...>   %{})
+    %{even: 32, odd: 34}
+
+That's the kind of thing that the Stream module can't easily emulate.
 
 ## What's the status of this library?
 
