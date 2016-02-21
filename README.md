@@ -177,14 +177,10 @@ I looked at the [Theriac transducer library](https://github.com/timdeputter/ther
 
 ## Installation
 
-I haven't put this up in Hex, because I don't see a compelling usage.  Feel free to [reach out](mailto:gary@modernsongs.com)--I'm happy to if you want to put this in the package manager.
-
-If it ever becomes [available in Hex](https://hex.pm/docs/publish), the package can be installed as:
-
   1. Add transducer to your list of dependencies in `mix.exs`:
 
         def deps do
-          [{:transducer, "~> 0.0.1"}]
+          [{:transducer, "~> 0.1.0"}]
         end
 
   2. Ensure transducer is started before your application:
